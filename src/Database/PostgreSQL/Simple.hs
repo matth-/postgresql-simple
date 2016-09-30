@@ -18,127 +18,123 @@
 -- use and high performance.
 --
 ------------------------------------------------------------------------------
-
 module Database.PostgreSQL.Simple
-    (
     -- * Writing queries
     -- $use
-
     -- ** The Query type
     -- $querytype
-
     -- ** Parameter substitution
     -- $subst
-
     -- *** Type inference
     -- $inference
-
     -- ** Substituting a single parameter
     -- $only_param
-
     -- ** Representing a list of values
     -- $in
-
     -- ** Modifying multiple rows at once
     -- $many
-
     -- ** @RETURNING@: modifications that return results
     -- $returning
-
     -- * Extracting results
     -- $result
-
     -- ** Handling null values
     -- $null
-
     -- ** Type conversions
     -- $types
-
     -- * Types
-      Connection
-    , Query
-    , ToRow
-    , FromRow
-    , In(..)
-    , Binary(..)
-    , Only(..)
-    , (:.)(..)
+  ( Connection
+  , Query
+  , ToRow
+  , FromRow
+  , In(..)
+  , Binary(..)
+  , Only(..)
+  , (:.)(..)
     -- ** Exceptions
-    , SqlError(..)
-    , PQ.ExecStatus(..)
-    , FormatError(..)
-    , QueryError(..)
-    , ResultError(..)
+  , SqlError(..)
+  , PQ.ExecStatus(..)
+  , FormatError(..)
+  , QueryError(..)
+  , ResultError(..)
     -- * Connection management
-    , Base.connectPostgreSQL
-    , Base.close
-    , Base.connect
-    , Base.ConnectInfo(..)
-    , Base.defaultConnectInfo
-    , Base.postgreSQLConnectionString
+  , Base.connectPostgreSQL
+  , Base.close
+  , Base.connect
+  , Base.ConnectInfo(..)
+  , Base.defaultConnectInfo
+  , Base.postgreSQLConnectionString
     -- * Queries that return results
-    , query
-    , query_
+  , query
+  , query_
     -- ** Queries taking parser as argument
-    , queryWith
-    , queryWith_
+  , queryWith
+  , queryWith_
     -- * Queries that stream results
-    , FoldOptions(..)
-    , FetchQuantity(..)
-    , defaultFoldOptions
-    , fold
-    , foldWithOptions
-    , fold_
-    , foldWithOptions_
-    , forEach
-    , forEach_
-    , returning
+  , FoldOptions(..)
+  , FetchQuantity(..)
+  , defaultFoldOptions
+  , fold
+  , foldWithOptions
+  , fold_
+  , foldWithOptions_
+  , forEach
+  , forEach_
+  , returning
     -- ** Queries that stream results taking a parser as an argument
-    , foldWith
-    , foldWithOptionsAndParser
-    , foldWith_
-    , foldWithOptionsAndParser_
-    , forEachWith
-    , forEachWith_
-    , returningWith
+  , foldWith
+  , foldWithOptionsAndParser
+  , foldWith_
+  , foldWithOptionsAndParser_
+  , forEachWith
+  , forEachWith_
+  , returningWith
     -- * Statements that do not return results
-    , execute
-    , execute_
-    , executeMany
---    , Base.insertID
+  , execute
+  , execute_
+  , executeMany
     -- * Transaction handling
-    , withTransaction
-    , withSavepoint
---    , Base.autocommit
-    , begin
-    , commit
-    , rollback
+  , withTransaction
+  , withSavepoint
+  , begin
+  , commit
+  , rollback
     -- * Helper functions
-    , formatMany
-    , formatQuery
-    ) where
+  , formatMany
+  , formatQuery
+  ) where
 
-import           Data.ByteString.Builder (Builder, byteString, char8)
-import           Control.Applicative ((<$>))
-import           Control.Exception as E
-import           Data.ByteString (ByteString)
-import           Data.Int (Int64)
-import           Data.List (intersperse)
-import           Data.Monoid (mconcat)
-import           Database.PostgreSQL.Simple.Compat ((<>), toByteString)
-import           Database.PostgreSQL.Simple.Cursor
-import           Database.PostgreSQL.Simple.FromField (ResultError(..))
-import           Database.PostgreSQL.Simple.FromRow (FromRow(..))
-import           Database.PostgreSQL.Simple.ToField (Action(..))
-import           Database.PostgreSQL.Simple.ToRow (ToRow(..))
-import           Database.PostgreSQL.Simple.Types
-                   ( Binary(..), In(..), Only(..), Query(..), (:.)(..) )
-import           Database.PostgreSQL.Simple.Internal as Base
-import           Database.PostgreSQL.Simple.Internal.PQResultUtils
-import           Database.PostgreSQL.Simple.Transaction
-import qualified Database.PostgreSQL.LibPQ as PQ
+import Control.Applicative ((<$>))
+import Control.Exception as E
+import Control.Monad (unless, void)
+import Control.Monad.Catch as E
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State.Strict
+import Data.ByteString (ByteString)
+--    , Base.insertID
+--    , Base.autocommit
+import Data.ByteString.Builder (Builder, byteString, char8)
 import qualified Data.ByteString.Char8 as B
-
+import Data.Int (Int64)
+import Data.List (intersperse)
+import Data.Monoid (mconcat)
+import qualified Database.PostgreSQL.LibPQ as PQ
+import Database.PostgreSQL.Simple.Compat ((<>), toByteString)
+import Database.PostgreSQL.Simple.Cursor
+import Database.PostgreSQL.Simple.FromField (ResultError(..))
+import Database.PostgreSQL.Simple.FromRow (FromRow(..))
+import Database.PostgreSQL.Simple.Internal as Base
+import Database.PostgreSQL.Simple.Internal.PQResultUtils
+import Database.PostgreSQL.Simple.ToField (Action(..))
+import Database.PostgreSQL.Simple.ToRow (ToRow(..))
+import Database.PostgreSQL.Simple.Transaction
+import Database.PostgreSQL.Simple.Types
+  ( (:.)(..)
+  , Binary(..)
+  , In(..)
+  , Only(..)
+  , Query(..)
+  )
 
 -- | Format a query string.
 --
@@ -152,9 +148,10 @@ import qualified Data.ByteString.Char8 as B
 -- correctly.
 formatQuery :: ToRow q => Connection -> Query -> q -> IO ByteString
 formatQuery conn q@(Query template) qs
-    | null xs && '?' `B.notElem` template = return template
-    | otherwise = toByteString <$> buildQuery conn q template xs
-  where xs = toRow qs
+  | null xs && '?' `B.notElem` template = return template
+  | otherwise = toByteString <$> buildQuery conn q template xs
+  where
+    xs = toRow qs
 
 -- | Format a query string with a variable number of rows.
 --
@@ -175,9 +172,8 @@ formatMany conn q@(Query template) qs = do
   case parseTemplate template of
     Just (before, qbits, after) -> do
       bs <- mapM (buildQuery conn q qbits . toRow) qs
-      return . toByteString . mconcat $ byteString before :
-                                        intersperse (char8 ',') bs ++
-                                        [byteString after]
+      return . toByteString . mconcat $
+        byteString before : intersperse (char8 ',') bs ++ [byteString after]
     Nothing -> fmtError "syntax error in multi-row template" q []
 
 -- Split the input string into three pieces, @before@, @qbits@, and @after@,
@@ -195,28 +191,22 @@ formatMany conn q@(Query template) qs = do
 -- 'formatMany' used to use pcre-light instead of this hand-written parser,
 -- but pcre is a hassle to install on Windows.
 parseTemplate :: ByteString -> Maybe (ByteString, ByteString, ByteString)
-parseTemplate template =
+parseTemplate template
     -- Convert input string to uppercase, to facilitate searching.
-    search $ B.map toUpper_ascii template
-  where
+ = search $ B.map toUpper_ascii template
     -- Search for the next occurrence of "VALUES"
+  where
     search bs =
-        case B.breakSubstring "VALUES" bs of
-            (x, y)
+      case B.breakSubstring "VALUES" bs of
+        (x, y)
                 -- If "VALUES" is not present in the string, or any '?' characters
                 -- were encountered prior to it, fail.
-                | B.null y || ('?' `B.elem` x)
-               -> Nothing
-
+          | B.null y || ('?' `B.elem` x) -> Nothing
                 -- If "VALUES" is preceded by an identifier character (a.k.a. \w),
                 -- try the next occurrence.
-                | not (B.null x) && isIdent (B.last x)
-               -> search $ B.drop 6 y
-
+          | not (B.null x) && isIdent (B.last x) -> search $ B.drop 6 y
                 -- Otherwise, we have a legitimate "VALUES" token.
-                | otherwise
-               -> parseQueryBits $ skipSpace $ B.drop 6 y
-
+          | otherwise -> parseQueryBits $ skipSpace $ B.drop 6 y
     -- Parse '(' \s* '?' \s* .  If this doesn't match
     -- (and we don't consume a '?'), look for another "VALUES".
     --
@@ -224,83 +214,79 @@ parseTemplate template =
     -- beginning of the "qbits" production described above.  This is why we
     -- pass it down to finishQueryBits.
     parseQueryBits qb
-        | Just ('(', skipSpace -> bs1) <- B.uncons qb
-        , Just ('?', skipSpace -> bs2) <- B.uncons bs1
-        = finishQueryBits qb bs2
-        | otherwise
-        = search qb
-
+      | Just ('(', skipSpace -> bs1) <- B.uncons qb
+      , Just ('?', skipSpace -> bs2) <- B.uncons bs1 = finishQueryBits qb bs2
+      | otherwise = search qb
     -- Parse (',' \s* '?' \s*)* ')' [^?]* .
     --
     -- Since we've already consumed at least one '?', there's no turning back.
     -- The parse has to succeed here, or the whole thing fails
     -- (because we don't allow '?' to appear outside of the VALUES list).
     finishQueryBits qb bs0
-        | Just (')', bs1) <- B.uncons bs0
-        = if '?' `B.elem` bs1
-              then Nothing
-              else Just $ slice3 template qb bs1
-        | Just (',', skipSpace -> bs1) <- B.uncons bs0
-        , Just ('?', skipSpace -> bs2) <- B.uncons bs1
-        = finishQueryBits qb bs2
-        | otherwise
-        = Nothing
-
+      | Just (')', bs1) <- B.uncons bs0 =
+        if '?' `B.elem` bs1
+          then Nothing
+          else Just $ slice3 template qb bs1
+      | Just (',', skipSpace -> bs1) <- B.uncons bs0
+      , Just ('?', skipSpace -> bs2) <- B.uncons bs1 = finishQueryBits qb bs2
+      | otherwise = Nothing
     -- Slice a string into three pieces, given the start offset of the second
     -- and third pieces.  Each "offset" is actually a tail of the uppercase
     -- version of the template string.  Its length is used to infer the offset.
     --
     -- It is important to note that we only slice the original template.
     -- We don't want our all-caps trick messing up the actual query string.
-    slice3 source p1 p2 =
-        (s1, s2, source'')
+    slice3 source p1 p2 = (s1, s2, source'')
       where
-        (s1, source')  = B.splitAt (B.length source - B.length p1) source
-        (s2, source'') = B.splitAt (B.length p1     - B.length p2) source'
-
-    toUpper_ascii c | c >= 'a' && c <= 'z' = toEnum (fromEnum c - 32)
-                    | otherwise            = c
-
+        (s1, source') = B.splitAt (B.length source - B.length p1) source
+        (s2, source'') = B.splitAt (B.length p1 - B.length p2) source'
+    toUpper_ascii c
+      | c >= 'a' && c <= 'z' = toEnum (fromEnum c - 32)
+      | otherwise = c
     -- Based on the definition of {ident_cont} in src/backend/parser/scan.l
     -- in the PostgreSQL source.  No need to check [a-z], since we converted
     -- the whole string to uppercase.
-    isIdent c = (c >= '0'    && c <= '9')
-             || (c >= 'A'    && c <= 'Z')
-             || (c >= '\x80' && c <= '\xFF')
-             || c == '_'
-             || c == '$'
-
+    isIdent c =
+      (c >= '0' && c <= '9') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '\x80' && c <= '\xFF') || c == '_' || c == '$'
     -- Based on {space} in scan.l
     isSpace_ascii c = (c == ' ') || (c >= '\t' && c <= '\r')
-
     skipSpace = B.dropWhile isSpace_ascii
-
 
 buildQuery :: Connection -> Query -> ByteString -> [Action] -> IO Builder
 buildQuery conn q template xs =
-    zipParams (split template) <$> mapM (buildAction conn q xs) xs
-  where split s =
+  zipParams (split template) <$> mapM (buildAction conn q xs) xs
+  where
+    split s
             -- This part escapes double '??'s to make literal '?'s possible
             -- in PostgreSQL queries using the JSON operators: @?@, @?|@ and @?&@
-            let (h,t) = breakOnSingleQuestionMark s
-            in byteString h
-               : if B.null t
-                 then []
-                 else split (B.tail t)
-        zipParams (t:ts) (p:ps) = t <> p <> zipParams ts ps
-        zipParams [t] []        = t
-        zipParams _ _ = fmtError (show countSingleQs ++
-                                  " single '?' characters, but " ++
-                                  show (length xs) ++ " parameters") q xs
-        countSingleQs = go 0 template
-          where go i "" = (i :: Int)
-                go i bs = case qms of
-                            ("?","?") -> go i nextQMBS
-                            ("?",_) -> go (i+1) nextQMBS
-                            _ -> i
-                  where qms = B.splitAt 1 qmBS
-                        (qmBS,nextQMBS) = B.splitAt 2 qmBS'
-                        qmBS' = B.dropWhile (/= '?') bs
+     =
+      let (h, t) = breakOnSingleQuestionMark s
+       in byteString h :
+          if B.null t
+            then []
+            else split (B.tail t)
+    zipParams (t:ts) (p:ps) = t <> p <> zipParams ts ps
+    zipParams [t] [] = t
+    zipParams _ _ =
+      fmtError
+        (show countSingleQs ++
+         " single '?' characters, but " ++ show (length xs) ++ " parameters")
+        q
+        xs
+    countSingleQs = go 0 template
+      where
+        go i "" = (i :: Int)
+        go i bs =
+          case qms of
+            ("?", "?") -> go i nextQMBS
+            ("?", _) -> go (i + 1) nextQMBS
+            _ -> i
+          where
+            qms = B.splitAt 1 qmBS
+            (qmBS, nextQMBS) = B.splitAt 2 qmBS'
+            qmBS' = B.dropWhile (/= '?') bs
 
 -- | Execute an @INSERT@, @UPDATE@, or other SQL query that is not
 -- expected to return results.
@@ -343,7 +329,6 @@ execute conn template qs = do
 --      WHERE sometable.x = upd.x
 --  |] [(1, \"hello\"),(2, \"world\")]
 -- @
-
 executeMany :: (ToRow q) => Connection -> Query -> [q] -> IO Int64
 executeMany _ _ [] = return 0
 executeMany conn q qs = do
@@ -366,7 +351,8 @@ returning :: (ToRow q, FromRow r) => Connection -> Query -> [q] -> IO [r]
 returning = returningWith fromRow
 
 -- | A version of 'returning' taking parser as argument
-returningWith :: (ToRow q) => RowParser r -> Connection -> Query -> [q] -> IO [r]
+returningWith ::
+     (ToRow q) => RowParser r -> Connection -> Query -> [q] -> IO [r]
 returningWith _ _ _ [] = return []
 returningWith parser conn q qs = do
   result <- exec conn =<< formatMany conn q qs
@@ -436,44 +422,46 @@ queryWith_ parser conn q@(Query que) = do
 --
 -- * 'SqlError':  the postgresql backend returned an error,  e.g.
 --   a syntax or type error,  or an incorrect table or column name.
-fold            :: ( FromRow row, ToRow params )
-                => Connection
-                -> Query
-                -> params
-                -> a
-                -> (a -> row -> IO a)
-                -> IO a
+fold ::
+     (MonadIO m, MonadMask m, FromRow row, ToRow params)
+  => Connection
+  -> Query
+  -> params
+  -> a
+  -> (a -> row -> m a)
+  -> m a
 fold = foldWithOptions defaultFoldOptions
 
 -- | A version of 'fold' taking a parser as an argument
-foldWith        :: ( ToRow params )
-                => RowParser row
-                -> Connection
-                -> Query
-                -> params
-                -> a
-                -> (a -> row -> IO a)
-                -> IO a
+foldWith ::
+     (MonadIO m, MonadMask m, ToRow params)
+  => RowParser row
+  -> Connection
+  -> Query
+  -> params
+  -> a
+  -> (a -> row -> m a)
+  -> m a
 foldWith = foldWithOptionsAndParser defaultFoldOptions
 
 -- | Number of rows to fetch at a time.   'Automatic' currently defaults
 --   to 256 rows,  although it might be nice to make this more intelligent
 --   based on e.g. the average size of the rows.
 data FetchQuantity
-   = Automatic
-   | Fixed !Int
+  = Automatic
+  | Fixed !Int
 
-data FoldOptions
-   = FoldOptions {
-       fetchQuantity   :: !FetchQuantity,
-       transactionMode :: !TransactionMode
-     }
+data FoldOptions = FoldOptions
+  { fetchQuantity :: !FetchQuantity
+  , transactionMode :: !TransactionMode
+  }
 
 -- | defaults to 'Automatic',  and 'TransactionMode' 'ReadCommitted' 'ReadOnly'
 defaultFoldOptions :: FoldOptions
-defaultFoldOptions = FoldOptions {
-      fetchQuantity   = Automatic,
-      transactionMode = TransactionMode ReadCommitted ReadOnly
+defaultFoldOptions =
+  FoldOptions
+    { fetchQuantity = Automatic
+    , transactionMode = TransactionMode ReadCommitted ReadOnly
     }
 
 -- | The same as 'fold',  but this provides a bit more control over
@@ -482,154 +470,273 @@ defaultFoldOptions = FoldOptions {
 --   accordingly.    If the connection is already in a transaction,
 --   then the existing transaction is used and thus the 'transactionMode'
 --   option is ignored.
-foldWithOptions :: ( FromRow row, ToRow params )
-                => FoldOptions
-                -> Connection
-                -> Query
-                -> params
-                -> a
-                -> (a -> row -> IO a)
-                -> IO a
+foldWithOptions ::
+     (MonadIO m, MonadMask m, FromRow row, ToRow params)
+  => FoldOptions
+  -> Connection
+  -> Query
+  -> params
+  -> a
+  -> (a -> row -> m a)
+  -> m a
 foldWithOptions opts = foldWithOptionsAndParser opts fromRow
 
 -- | A version of 'foldWithOptions' taking a parser as an argument
-foldWithOptionsAndParser :: (ToRow params)
-                         => FoldOptions
-                         -> RowParser row
-                         -> Connection
-                         -> Query
-                         -> params
-                         -> a
-                         -> (a -> row -> IO a)
-                         -> IO a
+foldWithOptionsAndParser ::
+     (MonadIO m, MonadMask m, ToRow params)
+  => FoldOptions
+  -> RowParser row
+  -> Connection
+  -> Query
+  -> params
+  -> a
+  -> (a -> row -> m a)
+  -> m a
 foldWithOptionsAndParser opts parser conn template qs a f = do
-    q <- formatQuery conn template qs
-    doFold opts parser conn template (Query q) a f
+  q <- liftIO $ formatQuery conn template qs
+  doFold opts parser conn template (Query q) a f
 
 -- | A version of 'fold' that does not perform query substitution.
-fold_ :: (FromRow r) =>
-         Connection
-      -> Query                  -- ^ Query.
-      -> a                      -- ^ Initial state for result consumer.
-      -> (a -> r -> IO a)       -- ^ Result consumer.
-      -> IO a
+fold_ ::
+     (MonadIO m, MonadMask m, FromRow r)
+  => Connection
+  -> Query -- ^ Query.
+  -> a -- ^ Initial state for result consumer.
+  -> (a -> r -> m a) -- ^ Result consumer.
+  -> m a
 fold_ = foldWithOptions_ defaultFoldOptions
 
 -- | A version of 'fold_' taking a parser as an argument
-foldWith_ :: RowParser r
-          -> Connection
-          -> Query
-          -> a
-          -> (a -> r -> IO a)
-          -> IO a
+foldWith_ ::
+     (MonadIO m, MonadMask m)
+  => RowParser r
+  -> Connection
+  -> Query
+  -> a
+  -> (a -> r -> m a)
+  -> m a
 foldWith_ = foldWithOptionsAndParser_ defaultFoldOptions
 
-foldWithOptions_ :: (FromRow r) =>
-                    FoldOptions
-                 -> Connection
-                 -> Query             -- ^ Query.
-                 -> a                 -- ^ Initial state for result consumer.
-                 -> (a -> r -> IO a)  -- ^ Result consumer.
-                 -> IO a
-foldWithOptions_ opts conn query' a f = doFold opts fromRow conn query' query' a f
+foldWithOptions_ ::
+     (MonadIO m, MonadMask m, FromRow r)
+  => FoldOptions
+  -> Connection
+  -> Query -- ^ Query.
+  -> a -- ^ Initial state for result consumer.
+  -> (a -> r -> m a) -- ^ Result consumer.
+  -> m a
+foldWithOptions_ opts conn query a f = doFold opts fromRow conn query query a f
 
 -- | A version of 'foldWithOptions_' taking a parser as an argument
-foldWithOptionsAndParser_ :: FoldOptions
-                          -> RowParser r
-                          -> Connection
-                          -> Query             -- ^ Query.
-                          -> a                 -- ^ Initial state for result consumer.
-                          -> (a -> r -> IO a)  -- ^ Result consumer.
-                          -> IO a
-foldWithOptionsAndParser_ opts parser conn query' a f = doFold opts parser conn query' query' a f
+foldWithOptionsAndParser_ ::
+     (MonadIO m, MonadMask m)
+  => FoldOptions
+  -> RowParser r
+  -> Connection
+  -> Query -- ^ Query.
+  -> a -- ^ Initial state for result consumer.
+  -> (a -> r -> m a) -- ^ Result consumer.
+  -> m a
+foldWithOptionsAndParser_ opts parser conn query a f =
+  doFold opts parser conn query query a f
 
-doFold :: FoldOptions
-       -> RowParser row
-       -> Connection
-       -> Query
-       -> Query
-       -> a
-       -> (a -> row -> IO a)
-       -> IO a
-doFold FoldOptions{..} parser conn _template q a0 f = do
-    stat <- withConnection conn PQ.transactionStatus
-    case stat of
-      PQ.TransIdle    -> withTransactionMode transactionMode conn go
-      PQ.TransInTrans -> go
-      PQ.TransActive  -> fail "foldWithOpts FIXME:  PQ.TransActive"
+doFold ::
+     (MonadIO m, MonadMask m)
+  => FoldOptions
+  -> RowParser row
+  -> Connection
+  -> Query
+  -> Query
+  -> a
+  -> (a -> row -> m a)
+  -> m a
+doFold FoldOptions {..} parser conn _template q a0 f = do
+  stat <- liftIO $ withConnection conn PQ.transactionStatus
+  case stat of
+    PQ.TransIdle -> withTransactionMode transactionMode conn go
+    PQ.TransInTrans -> go
+    PQ.TransActive -> fail "foldWithOpts FIXME:  PQ.TransActive"
          -- This _shouldn't_ occur in the current incarnation of
          -- the library,  as we aren't using libpq asynchronously.
          -- However,  it could occur in future incarnations of
          -- this library or if client code uses the Internal module
          -- to use raw libpq commands on postgresql-simple connections.
-      PQ.TransInError -> fail "foldWithOpts FIXME:  PQ.TransInError"
+    PQ.TransInError -> fail "foldWithOpts FIXME:  PQ.TransInError"
          -- This should be turned into a better error message.
          -- It is probably a bad idea to automatically roll
          -- back the transaction and start another.
-      PQ.TransUnknown -> fail "foldWithOpts FIXME:  PQ.TransUnknown"
+    PQ.TransUnknown -> fail "foldWithOpts FIXME:  PQ.TransUnknown"
          -- Not sure what this means.
   where
-    declare =
-      declareCursor conn q
-    fetch cursor a =
-      foldForwardWithParser cursor parser chunkSize f a
+    declare = liftIO $ declareCursor conn q
+    fetch cursor a = liftIO $ foldForwardWithParser cursor parser chunkSize f a
+    go =
+      bracket declare closeCursor $ \cursor ->
+        let loop a =
+              fetch cursor a >>= \r ->
+                case r of
+                  Left x -> return x
+                  Right x -> loop x
+         in loop a0
+    chunkSize =
+      case fetchQuantity of
+        Automatic -> 256
+        Fixed n -> n
 
-    go = bracket declare closeCursor $ \cursor ->
-             let loop a = fetch cursor a >>=
-                            \r -> case r of
-                                    Left x -> return x
-                                    Right x -> loop x
-               in loop a0
+{--
+=======
+    declare = do
+        name <- liftIO $ newTempName conn
+        _ <- liftIO $ execute_ conn $ mconcat
+                 [ "DECLARE ", name, " NO SCROLL CURSOR FOR ", q ]
+        return name
+    close name =
+        (liftIO $ void $ execute_ conn ("CLOSE " <> name)) `E.catch` \ex ->
+            -- Don't throw exception if CLOSE failed because the transaction is
+            -- aborted.  Otherwise, it will throw away the original error.
+            unless (isFailedTransactionError ex) $ throwM ex
 
+    go = bracket declare close $ \(Query name) ->
+         let q = toByteString (byteString "FETCH FORWARD "
+                               <> intDec chunkSize
+                               <> byteString " FROM "
+                               <> byteString name
+                              )
+             loop a = do
+                 result <- liftIO $ exec conn q
+                 status <- liftIO $ PQ.resultStatus result
+                 case status of
+                     PQ.TuplesOk -> do
+                         nrows <- liftIO $ PQ.ntuples result
+                         ncols <- liftIO $ PQ.nfields result
+                         if nrows > 0
+                         then do
+                             let inner a row = do
+                                   x <- liftIO $ getRowWith parser row ncols conn result
+                                   f a x
+                             foldM' inner a 0 (nrows - 1) >>= loop
+                         else return a
+                     _   -> liftIO $ throwResultError "fold" result status
+          in loop a0
+>>>>>>> ec37888... Generalize the base monad of fold-like operations
+--}
 -- FIXME: choose the Automatic chunkSize more intelligently
 --   One possibility is to use the type of the results,  although this
 --   still isn't a perfect solution, given that common types (e.g. text)
 --   are of highly variable size.
 --   A refinement of this technique is to pick this number adaptively
 --   as results are read in from the database.
-    chunkSize = case fetchQuantity of
-                 Automatic   -> 256
-                 Fixed n     -> n
-
 -- | A version of 'fold' that does not transform a state value.
-forEach :: (ToRow q, FromRow r) =>
-           Connection
-        -> Query                -- ^ Query template.
-        -> q                    -- ^ Query parameters.
-        -> (r -> IO ())         -- ^ Result consumer.
-        -> IO ()
+forEach ::
+     (MonadIO m, MonadMask m, ToRow q, FromRow r)
+  => Connection
+  -> Query -- ^ Query template.
+  -> q -- ^ Query parameters.
+  -> (r -> m ()) -- ^ Result consumer.
+  -> m ()
 forEach = forEachWith fromRow
+
 {-# INLINE forEach #-}
-
 -- | A version of 'forEach' taking a parser as an argument
-forEachWith :: ( ToRow q )
-            => RowParser r
-            -> Connection
-            -> Query
-            -> q
-            -> (r -> IO ())
-            -> IO ()
-forEachWith parser conn template qs = foldWith parser conn template qs () . const
+forEachWith ::
+     (MonadIO m, MonadMask m, ToRow q)
+  => RowParser r
+  -> Connection
+  -> Query
+  -> q
+  -> (r -> m ())
+  -> m ()
+forEachWith parser conn template qs =
+  foldWith parser conn template qs () . const
+
 {-# INLINE forEachWith #-}
-
 -- | A version of 'forEach' that does not perform query substitution.
-forEach_ :: (FromRow r) =>
-            Connection
-         -> Query                -- ^ Query template.
-         -> (r -> IO ())         -- ^ Result consumer.
-         -> IO ()
+forEach_ ::
+     (MonadIO m, MonadMask m, FromRow r)
+  => Connection
+  -> Query -- ^ Query template.
+  -> (r -> m ()) -- ^ Result consumer.
+  -> m ()
 forEach_ = forEachWith_ fromRow
+
 {-# INLINE forEach_ #-}
-
-forEachWith_ :: RowParser r
-             -> Connection
-             -> Query
-             -> (r -> IO ())
-             -> IO ()
+forEachWith_ ::
+     (MonadIO m, MonadMask m)
+  => RowParser r
+  -> Connection
+  -> Query
+  -> (r -> m ())
+  -> m ()
 forEachWith_ parser conn template = foldWith_ parser conn template () . const
+
 {-# INLINE forEachWith_ #-}
+forM' :: (Monad m, Ord n, Num n) => n -> n -> (n -> m a) -> m [a]
+forM' lo hi m = loop hi []
+  where
+    loop !n !as
+      | n < lo = return as
+      | otherwise = do
+        a <- m n
+        loop (n - 1) (a : as)
 
+{-# INLINE forM' #-}
+foldM' :: (Monad m, Ord n, Num n) => (a -> n -> m a) -> a -> n -> n -> m a
+foldM' f a lo hi = loop a lo
+  where
+    loop a !n
+      | n > hi = return a
+      | otherwise = do
+        a' <- f a n
+        loop a' (n + 1)
 
+{-# INLINE foldM' #-}
+finishQueryWith :: RowParser r -> Connection -> Query -> PQ.Result -> IO [r]
+finishQueryWith parser conn q result = do
+  status <- PQ.resultStatus result
+  case status of
+    PQ.EmptyQuery -> throwM $ QueryError "query: Empty query" q
+    PQ.CommandOk -> throwM $ QueryError "query resulted in a command response" q
+    PQ.TuplesOk -> do
+      nrows <- PQ.ntuples result
+      ncols <- PQ.nfields result
+      forM' 0 (nrows - 1) $ \row -> getRowWith parser row ncols conn result
+    PQ.CopyOut -> throwM $ QueryError "query: COPY TO is not supported" q
+    PQ.CopyIn -> throwM $ QueryError "query: COPY FROM is not supported" q
+    PQ.BadResponse -> throwResultError "query" result status
+    PQ.NonfatalError -> throwResultError "query" result status
+    PQ.FatalError -> throwResultError "query" result status
+
+getRowWith ::
+     RowParser r -> PQ.Row -> PQ.Column -> Connection -> PQ.Result -> IO r
+getRowWith parser row ncols conn result = do
+  let rw = Row row result
+  let unCol (PQ.Col x) = fromIntegral x :: Int
+  okvc <- runConversion (runStateT (runReaderT (unRP parser) rw) 0) conn
+  case okvc of
+    Ok (val, col)
+      | col == ncols -> return val
+      | otherwise -> do
+        vals <-
+          forM' 0 (ncols - 1) $ \c -> do
+            tinfo <- getTypeInfo conn =<< PQ.ftype result c
+            v <- PQ.getvalue result row c
+            return (tinfo, fmap ellipsis v)
+        throwM
+          (ConversionFailed
+             (show (unCol ncols) ++ " values: " ++ show vals)
+             Nothing
+             ""
+             (show (unCol col) ++ " slots in target type")
+             "mismatch between number of columns to \
+                      \convert and number in target type")
+    Errors [] -> throwM $ ConversionFailed "" Nothing "" "" "unknown error"
+    Errors [x] -> throwM x
+    Errors xs -> throwM $ ManyErrors xs
+
+ellipsis :: ByteString -> ByteString
+ellipsis bs
+  | B.length bs > 15 = B.take 10 bs `B.append` "[...]"
+  | otherwise = bs
 -- $use
 --
 -- SQL-based applications are somewhat notorious for their
@@ -640,7 +747,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- This library provides a 'Query' type and a parameter substitution
 -- facility to address both ease of use and security.
-
 -- $querytype
 --
 -- A 'Query' is a @newtype@-wrapped 'ByteString'. It intentionally
@@ -664,7 +770,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- A 'Query' value does not represent the actual query that will be
 -- executed, but is a template for constructing the final query.
-
 -- $subst
 --
 -- Since applications need to be able to construct queries with
@@ -701,7 +806,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 -- validate your query. It's up to you to write syntactically valid
 -- SQL, and to ensure that each \"@?@\" in your query template is
 -- matched with the right tuple element.
-
 -- $inference
 --
 -- Automated type inference means that you will often be able to avoid
@@ -735,7 +839,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- > xs <- query_ conn "select 2 + 2"
 -- > print (xs :: [Only Int])
-
 -- $only_param
 --
 -- Haskell lacks a single-element tuple type, so if you have just one
@@ -758,7 +861,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- A row of /n/ query results is represented using an /n/-tuple, so
 -- you should use 'Only' to represent a single-column result.
-
 -- $in
 --
 -- Suppose you want to write a query using an @IN@ clause:
@@ -780,7 +882,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 -- If your 'In'-wrapped list is empty, the string @\"(null)\"@ will be
 -- substituted instead, to ensure that your clause remains
 -- syntactically valid.
-
 -- $many
 --
 -- If you know that you have many rows of data to insert into a table,
@@ -823,7 +924,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- > insert into users (first_name,last_name) values
 -- >   ('Boris','Karloff'),('Ed','Wood')
-
 -- $returning
 --
 -- PostgreSQL supports returning values from data manipulation statements
@@ -839,7 +939,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 -- > let q = "insert into sales (amount, label) values (?,?) returning id, t"
 -- > xs :: [(Int, UTCTime)] <- query conn q (15,"Sawdust")
 -- > ys :: [(Int, UTCTime)] <- returning conn q [(20,"Chips"),(300,"Wood")]
-
 -- $result
 --
 -- The 'query' and 'query_' functions return a list of values in the
@@ -865,7 +964,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --   can infer that @name@ must be a 'Text', due to our use of the
 --   @unpack@ function. However, we have to tell it the type of @age@,
 --   as it has no other information to determine the exact type.
-
 -- $null
 --
 -- The type of a result tuple will look something like this:
@@ -882,7 +980,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 -- If 'query' encounters a @NULL@ in a row where the corresponding
 -- Haskell type is not 'Maybe', it will throw a 'ResultError'
 -- exception.
-
 -- $only_result
 --
 -- To specify that a query returns a single-column result, use the
@@ -890,7 +987,6 @@ forEachWith_ parser conn template = foldWith_ parser conn template () . const
 --
 -- > xs <- query_ conn "select id from users"
 -- > forM_ xs $ \(Only dbid) -> {- ... -}
-
 -- $types
 --
 -- Conversion of SQL values to Haskell values is somewhat
